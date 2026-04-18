@@ -29,9 +29,6 @@ cd frontend
 npm install
 npm run dev
 ```
-
-- Backend: http://localhost:8000  
-- Frontend: http://localhost:3000  
 - API: `GET /sentiment` — cached skew + DVOL data (refreshed every 60s).
 
 ## Repo
