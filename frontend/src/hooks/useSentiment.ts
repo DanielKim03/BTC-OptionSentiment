@@ -41,7 +41,15 @@ export interface SentimentResponse {
 // Hook
 // ---------------------------------------------------------------------------
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.NODE_ENV === "production" ? "" : "http://localhost:8000");
+
+if (process.env.NODE_ENV === "production" && !process.env.NEXT_PUBLIC_API_URL) {
+  console.warn(
+    "NEXT_PUBLIC_API_URL is not set — API requests will fail in production.",
+  );
+}
 const POLL_INTERVAL = 30_000; // 30 seconds
 
 export function useSentiment() {

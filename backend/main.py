@@ -6,14 +6,16 @@ Calculates BTC market sentiment from Deribit option skew (25-delta risk reversal
 import asyncio
 import logging
 import math
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from statistics import NormalDist
 
 import aiohttp
 import pandas as pd
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
@@ -572,13 +574,43 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
+ALLOWED_ORIGINS = [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+# Simple in-memory rate limiter (per-IP, fixed window)
+RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "60"))
+RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+_rate_buckets: dict[str, tuple[float, int]] = {}
+_rate_lock = asyncio.Lock()
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    client_ip = (
+        request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or (request.client.host if request.client else "unknown")
+    )
+    now = asyncio.get_event_loop().time()
+    async with _rate_lock:
+        window_start, count = _rate_buckets.get(client_ip, (now, 0))
+        if now - window_start >= RATE_LIMIT_WINDOW_SECONDS:
+            window_start, count = now, 0
+        count += 1
+        _rate_buckets[client_ip] = (window_start, count)
+        if count > RATE_LIMIT_REQUESTS:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests"},
+            )
+    return await call_next(request)
 
 
 @app.get("/sentiment", response_model=SentimentResponse)
